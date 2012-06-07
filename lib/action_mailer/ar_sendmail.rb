@@ -1,4 +1,3 @@
-require 'optparse'
 require 'net/smtp'
 require 'smtp_tls'
 require 'rubygems'
@@ -187,171 +186,23 @@ end
   end
 
   ##
-  # Processes command line options in +args+
-
-  def self.process_args(args)
-    name = File.basename $0
-
-    options = {}
-    options[:Chdir] = '.'
-    options[:Daemon] = false
-    options[:Delay] = 60
-    options[:MaxAge] = 86400 * 7
-    options[:Once] = false
-    options[:RailsEnv] = ENV['RAILS_ENV']
-    options[:TableName] = 'Email'
-    options[:Pidfile] = options[:Chdir] + '/log/ar_sendmail.pid'
-
-    opts = OptionParser.new do |opts|
-      opts.banner = "Usage: #{name} [options]"
-      opts.separator ''
-
-      opts.separator "#{name} scans the email table for new messages and sends them to the"
-      opts.separator "website's configured SMTP host."
-      opts.separator ''
-      opts.separator "#{name} must be run from a Rails application's root."
-
-      opts.separator ''
-      opts.separator 'Sendmail options:'
-
-      opts.on("-b", "--batch-size BATCH_SIZE",
-              "Maximum number of emails to send per delay",
-              "Default: Deliver all available emails", Integer) do |batch_size|
-        options[:BatchSize] = batch_size
-      end
-
-      opts.on(      "--delay DELAY",
-              "Delay between checks for new mail",
-              "in the database",
-              "Default: #{options[:Delay]}", Integer) do |delay|
-        options[:Delay] = delay
-      end
-
-      opts.on(      "--max-age MAX_AGE",
-              "Maxmimum age for an email. After this",
-              "it will be removed from the queue.",
-              "Set to 0 to disable queue cleanup.",
-              "Default: #{options[:MaxAge]} seconds", Integer) do |max_age|
-        options[:MaxAge] = max_age
-      end
-
-      opts.on("-o", "--once",
-              "Only check for new mail and deliver once",
-              "Default: #{options[:Once]}") do |once|
-        options[:Once] = once
-      end
-
-      opts.on("-d", "--daemonize",
-              "Run as a daemon process",
-              "Default: #{options[:Daemon]}") do |daemon|
-        options[:Daemon] = true
-      end
-
-      opts.on("-p", "--pidfile PIDFILE",
-              "Set the pidfile location",
-              "Default: #{options[:Chdir]}#{options[:Pidfile]}", String) do |pidfile|
-        options[:Pidfile] = pidfile
-      end
-
-      opts.on(      "--mailq",
-              "Display a list of emails waiting to be sent") do |mailq|
-        options[:MailQ] = true
-      end
-
-      opts.separator ''
-      opts.separator 'Setup Options:'
-
-      opts.on(      "--create-migration",
-              "Prints a migration to add an Email table",
-              "to stdout") do |create|
-        options[:Migrate] = true
-      end
-
-      opts.on(      "--create-model",
-              "Prints a model for an Email ActiveRecord",
-              "object to stdout") do |create|
-        options[:Model] = true
-      end
-
-      opts.separator ''
-      opts.separator 'Generic Options:'
-
-      opts.on("-c", "--chdir PATH",
-              "Use PATH for the application path",
-              "Default: #{options[:Chdir]}") do |path|
-        usage opts, "#{path} is not a directory" unless File.directory? path
-        usage opts, "#{path} is not readable" unless File.readable? path
-        options[:Chdir] = path
-      end
-
-      opts.on("-e", "--environment RAILS_ENV",
-              "Set the RAILS_ENV constant",
-              "Default: #{options[:RailsEnv]}") do |env|
-        options[:RailsEnv] = env
-      end
-
-      opts.on("-t", "--table-name TABLE_NAME",
-              "Name of table holding emails",
-              "Used for both sendmail and",
-              "migration creation",
-              "Default: #{options[:TableName]}") do |name|
-        options[:TableName] = name
-      end
-
-      opts.on("-v", "--[no-]verbose",
-              "Be verbose",
-              "Default: #{options[:Verbose]}") do |verbose|
-        options[:Verbose] = verbose
-      end
-
-      opts.on("-h", "--help",
-              "You're looking at it") do
-        usage opts
-      end
-
-      opts.separator ''
-    end
-
-    opts.parse! args
-
-    return options if options.include? :Migrate or options.include? :Model
- 
-    ENV['RAILS_ENV'] = options[:RailsEnv]
-
-    Dir.chdir options[:Chdir] do
-      begin
-        require 'config/environment'
-      rescue LoadError
-        usage opts, <<-EOF
-#{name} must be run from a Rails application's root to deliver email.
-#{Dir.pwd} does not appear to be a Rails application root.
-          EOF
-      end
-    end
-
-    return options
-  end
-
-  ##
   # Processes +args+ and runs as appropriate
 
-  def self.run(args = ARGV)
-    options = process_args args
-
-    if options.include? :Migrate then
-      create_migration options[:TableName]
+  def self.run(options)
+    if options.include? :migrate then
+      create_migration options[:tablename]
       exit
-    elsif options.include? :Model then
-      create_model options[:TableName]
+    elsif options.include? :model then
+      create_model options[:tablename]
       exit
-    elsif options.include? :MailQ then
-      mailq options[:TableName]
+    elsif options.include? :mailq then
+      mailq options[:tablename]
       exit
     end
 
-    if options[:Daemon] then
+    if options[:daemon] then
       require 'webrick/server'
-      @@pid_file = File.expand_path(options[:Pidfile], options[:Chdir])
+      @@pid_file = File.expand_path(options[:pidfile], options[:chdir])
       if File.exists? @@pid_file
         # check to see if process is actually running
         pid = ''
@@ -382,19 +233,6 @@ end
   end
 
   ##
-  # Prints a usage message to $stderr using +opts+ and exits
-
-  def self.usage(opts, message = nil)
-    if message then
-      $stderr.puts message
-      $stderr.puts
-    end
-
-    $stderr.puts opts
-    exit 1
-  end
-
-  ##
   # Creates a new ARSendmail.
   #
   # Valid options are:
@@ -405,16 +243,16 @@ end
   # <tt>:Verbose</tt>:: Be verbose.
 
   def initialize(options = {})
-    options[:Delay] ||= 60
-    options[:TableName] ||= 'Email'
-    options[:MaxAge] ||= 86400 * 7
+    options[:delay] ||= 60
+    options[:tablename] ||= 'Email'
+    options[:maxage] ||= 86400 * 7
 
-    @batch_size = options[:BatchSize]
-    @delay = options[:Delay]
-    @email_class = Object.path2class options[:TableName]
-    @once = options[:Once]
-    @verbose = options[:Verbose]
-    @max_age = options[:MaxAge]
+    @batch_size = options[:batchsize]
+    @delay = options[:delay]
+    @email_class = Object.path2class options[:tablename]
+    @once = options[:once]
+    @verbose = options[:verbose]
+    @max_age = options[:maxage]
 
     @failed_auth_count = 0
   end
