@@ -83,7 +83,7 @@ class ActionMailer::ARSendmail
   ##
   # ActiveRecord class that holds emails
 
-  attr_reader :email_class
+  attr_reader :email_table_name
 
   ##
   # True if only one delivery attempt will be made per call to run
@@ -249,7 +249,7 @@ end
 
     @batch_size = options[:batchsize]
     @delay = options[:delay]
-    @email_class = Object.path2class options[:tablename]
+    @email_table_name = options[:tablename]
     @once = options[:once]
     @verbose = options[:verbose]
     @max_age = options[:maxage]
@@ -265,7 +265,7 @@ end
     return if @max_age == 0
     timeout = Time.now - @max_age
     conditions = ['last_send_attempt > 0 and created_on < ?', timeout]
-    mail = @email_class.destroy_all conditions
+    mail = email_class.destroy_all conditions
 
     log "expired #{mail.length} emails from the queue"
   end
@@ -327,6 +327,10 @@ end
     exit
   end
 
+  def email_class
+    Object.path2class @email_table_name
+  end
+
   ##
   # Returns emails in email_class that haven't had a delivery attempt in the
   # last 300 seconds.
@@ -334,7 +338,7 @@ end
   def find_emails
     options = { :conditions => ['last_send_attempt < ?', Time.now.to_i - 300] }
     options[:limit] = batch_size unless batch_size.nil?
-    mail = @email_class.find :all, options
+    mail = email_class.find :all, options
 
     log "found #{mail.length} emails to send"
     mail
